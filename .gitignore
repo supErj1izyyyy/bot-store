@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# WhatsApp session credentials (jangan di-push demi keamanan & privasi)
+session/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backup bot lama (tidak perlu di-push ke git)
+backup_nerestore_1_2026-11-18_055532.json
