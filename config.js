@@ -12,5 +12,12 @@ module.exports = {
   footerText: '\n\n━━━━━━━━━━━━━━━━━━━\n💬 Hubungi Admin untuk pemesanan.',
 
   // Jeda cooldown antar perintah (dalam detik) agar aman dari deteksi spam WhatsApp (10 - 20 detik)
-  cooldownSeconds: 15
+  cooldownSeconds: 15,
+
+  // Jam tidur bot (Off otomatis jam 00:00 - 05:00 agar tidak terdeteksi bot aktif 24 jam oleh Meta)
+  sleepHours: {
+    enabled: true,
+    startHour: 0, // 00:00 (12 malam)
+    endHour: 5    // 05:00 (5 pagi)
+  }
 };

@@ -47,6 +47,18 @@ function getFormattedDate() {
   return `${dayName}, ${date} ${monthName} ${year}`;
 }
 
+// Helper: Cek apakah saat ini masuk jam tidur bot (00:00 - 05:00)
+function isSleepTime() {
+  if (!config.sleepHours?.enabled) return false;
+  const currentHour = new Date().getHours();
+  const { startHour, endHour } = config.sleepHours;
+  if (startHour <= endHour) {
+    return currentHour >= startHour && currentHour < endHour;
+  } else {
+    return currentHour >= startHour || currentHour < endHour;
+  }
+}
+
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   
@@ -124,6 +136,9 @@ async function startBot() {
     const { id, participants, action } = update;
     const targetGroup = db.getSetting('target_group_id');
     if (!targetGroup || id !== targetGroup) return;
+
+    // Saat jam tidur (00:00 - 05:00), jangan kirim welcome/farewell agar akun terlihat offline
+    if (isSleepTime()) return;
 
     try {
       const groupMeta = await sock.groupMetadata(id);
@@ -264,6 +279,14 @@ async function startBot() {
 
       // Check current locked target group
       const targetGroup = db.getSetting('target_group_id');
+
+      // Jam tidur bot (00:00 - 05:00): Abaikan pesan dari member agar terhindar dari deteksi bot 24 jam oleh Meta
+      if (isSleepTime()) {
+        const adminAllowed = await isAuthorized(remoteJid, senderNumber);
+        if (!adminAllowed) {
+          return; // Silent ignore untuk member
+        }
+      }
 
       // 1. Initial lock command: "setgrup"
       if (lowerText === 'setgrup' || lowerText === 'setgroup') {
