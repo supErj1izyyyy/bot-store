@@ -11,3 +11,6 @@ yarn-error.log*
 
 # Backup bot lama (tidak perlu di-push ke git)
 backup_nerestore_1_2026-11-18_055532.json
+
+# Folder auto backup harian
+backups/

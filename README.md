@@ -83,6 +83,8 @@ node index.js --pairing 628xxxxxxxx
 | `kick @member` | `kick @user` / reply pesan + ketik `kick` | Mengeluarkan member dari grup |
 | `hapuspesan` | Reply pesan + ketik `hapuspesan` | Menghapus pesan orang lain untuk semua orang (Delete for Everyone) |
 | `h <pesan>` / `hidetag` | `h restock netflix ya` | Tag semua member grup secara senyap (hidetag) |
+| `status` / `ping` | `status` | Cek performa server Termux (Uptime, RAM, jam server) |
+| `backup` | `backup` | Membuat & mengunduh file backup database toko langsung di chat WA |
 | Kirim Foto + Caption `addlist` / `updatelist` | Foto + caption `addlist Canva \| 10k 1 thn` | Tambah/update produk sekaligus menyimpan foto produk |
 | Kirim Foto + Caption `setbanner` | Foto banner toko + caption `setbanner` | Mengganti gambar brosur katalog (muncul saat `list`) |
 | `setgrup` | `setgrup` | Mengunci bot ke grup saat ini |

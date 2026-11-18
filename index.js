@@ -17,8 +17,10 @@ const config = require('./config');
 // Ensure directories exist
 const sessionDir = path.join(__dirname, 'session');
 const mediaDir = path.join(__dirname, 'media');
+const backupsDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
 
 // Check CLI arguments for pairing code option: node index.js --pairing 628123456789
 const isPairing = process.argv.includes('--pairing');
@@ -45,6 +47,62 @@ function getFormattedDate() {
   const monthName = months[now.getMonth()];
   const year = now.getFullYear();
   return `${dayName}, ${date} ${monthName} ${year}`;
+}
+
+// Helper: Format uptime menjadi teks mudah dibaca (hari, jam, menit, detik)
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const parts = [];
+  if (d > 0) parts.push(`${d} hari`);
+  if (h > 0) parts.push(`${h} jam`);
+  if (m > 0) parts.push(`${m} menit`);
+  parts.push(`${s} detik`);
+  return parts.join(' ');
+}
+
+// Helper: Membuat backup database harian (file JSON dan file .db)
+function createDatabaseBackup() {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
+  const allProducts = db.getAllProducts();
+  const backupData = {
+    backupDate: now.toISOString(),
+    backupDateWIB: `${getFormattedDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`,
+    totalProducts: allProducts.length,
+    targetGroupId: db.getSetting('target_group_id'),
+    products: allProducts
+  };
+
+  const jsonFileName = `backup_${dateStr}.json`;
+  const jsonPath = path.join(backupsDir, jsonFileName);
+  fs.writeFileSync(jsonPath, JSON.stringify(backupData, null, 2), 'utf8');
+
+  // Salin file .db SQLite sebagai cadangan tambahan
+  const dbSource = path.join(__dirname, 'data', 'store.db');
+  const dbFileName = `store_${dateStr}.db`;
+  const dbDest = path.join(backupsDir, dbFileName);
+  if (fs.existsSync(dbSource)) {
+    fs.copyFileSync(dbSource, dbDest);
+  }
+
+  // Hapus backup lama jika lebih dari 14 hari agar memori HP tidak penuh
+  try {
+    const files = fs.readdirSync(backupsDir);
+    const fourteenDaysAgo = Date.now() - (14 * 24 * 60 * 60 * 1000);
+    for (const f of files) {
+      const full = path.join(backupsDir, f);
+      const stat = fs.statSync(full);
+      if (stat.mtimeMs < fourteenDaysAgo) {
+        fs.unlinkSync(full);
+      }
+    }
+  } catch (e) {}
+
+  return { jsonPath, dbDest, jsonFileName, total: allProducts.length };
 }
 
 // Helper: Cek apakah saat ini masuk jam tidur bot (00:00 - 05:00)
@@ -128,8 +186,24 @@ async function startBot() {
       } else {
         console.log('[BOT] ⚠️ Belum ada grup yang dikunci. Ketik "setgrup" di grup toko untuk mengunci.');
       }
+
+      // Backup otomatis saat bot terhubung
+      try {
+        const { jsonFileName, total } = createDatabaseBackup();
+        console.log(`[BACKUP] Backup database siap: ${jsonFileName} (${total} produk)`);
+      } catch (err) {
+        console.error('[BACKUP] Gagal membuat backup saat startup:', err);
+      }
     }
   });
+
+  // Backup otomatis berkala setiap 6 jam
+  setInterval(() => {
+    try {
+      const { jsonFileName, total } = createDatabaseBackup();
+      console.log(`[BACKUP] Cek backup otomatis: ${jsonFileName} (${total} produk)`);
+    } catch (e) {}
+  }, 6 * 60 * 60 * 1000);
 
   // Handle welcome & farewell messages
   sock.ev.on('group-participants.update', async (update) => {
@@ -498,7 +572,60 @@ async function startBot() {
         return;
       }
 
-      // 7. Command "deletelist <nama>" (alias: hapus / del)
+      // 7. Command "ping" / "status" / "server" (Pantau performa server dari jauh)
+      if (['ping', 'status', 'server'].includes(lowerText)) {
+        const adminAllowed = await isAuthorized(remoteJid, senderNumber);
+        if (!adminAllowed) return;
+
+        const uptimeStr = formatUptime(process.uptime());
+        const mem = process.memoryUsage();
+        const rssMb = (mem.rss / 1024 / 1024).toFixed(1);
+        const heapMb = (mem.heapUsed / 1024 / 1024).toFixed(1);
+        const totalProd = db.getAllProducts().length;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const sleeping = isSleepTime() ? '🌙 Jam Tidur (Off)' : '🟢 Aktif Melayani';
+
+        const statusText = `🖥️ *STATUS SERVER BOT STORE*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🟢 *Status:* Online (Termux)\n` +
+          `⏱️ *Uptime:* ${uptimeStr}\n` +
+          `💾 *RAM Usage:* ${rssMb} MB (Heap: ${heapMb} MB)\n` +
+          `📦 *Total Produk:* ${totalProd} item\n` +
+          `🕒 *Jam Server:* ${timeStr} WIB\n` +
+          `🔋 *Mode:* ${sleeping}\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `💡 Ketik *backup* untuk unduh file backup database.`;
+
+        await sock.sendMessage(remoteJid, { text: statusText }, { quoted: msg });
+        return;
+      }
+
+      // 8. Command "backup" (Unduh file backup database langsung lewat WhatsApp)
+      if (lowerText === 'backup') {
+        const adminAllowed = await isAuthorized(remoteJid, senderNumber);
+        if (!adminAllowed) return;
+
+        await sock.sendMessage(remoteJid, { text: '⏳ Sedang menyiapkan file backup database...' }, { quoted: msg });
+        try {
+          const { jsonPath, total, jsonFileName } = createDatabaseBackup();
+          await sock.sendMessage(remoteJid, {
+            document: fs.readFileSync(jsonPath),
+            mimetype: 'application/json',
+            fileName: jsonFileName,
+            caption: `📦 *BACKUP DATABASE BOT STORE*\n` +
+              `🗓️ Tanggal: ${getFormattedDate()}\n` +
+              `📦 Total: ${total} produk\n\n` +
+              `_File ini tersimpan di folder backups/ dan bisa kamu simpan sebagai cadangan data toko kamu._`
+          }, { quoted: msg });
+        } catch (err) {
+          console.error('[BACKUP] Gagal mengirim file backup:', err);
+          await sock.sendMessage(remoteJid, { text: '❌ Gagal membuat file backup.' }, { quoted: msg });
+        }
+        return;
+      }
+
+      // 9. Command "deletelist <nama>" (alias: hapus / del)
       if (/^(deletelist|hapus|del)\s+/i.test(trimmedText)) {
         const adminAllowed = await isAuthorized(remoteJid, senderNumber);
         if (!adminAllowed) {
@@ -717,6 +844,8 @@ async function startBot() {
             `• *kick @member* : Keluarkan member (atau reply pesannya lalu ketik kick).\n` +
             `• *hapuspesan* : Reply pesan yang ingin dihapus untuk semua orang.\n` +
             `• *h <pesan>* : Tag semua member grup (hidetag).\n` +
+            `• *status* : Cek performa server (uptime, RAM, status).\n` +
+            `• *backup* : Unduh file backup database toko.\n` +
             `• *setgrup* : Kunci bot ke grup ini.\n` +
             `• *unsetgrup* : Buka kunci grup.`;
           await sock.sendMessage(remoteJid, { text: helpAdmin }, { quoted: msg });
